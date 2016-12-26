@@ -1,0 +1,3 @@
+# MIX.js
+
+MIX is a computer architecture imagined and described by D. Knuth, in his TAOCP. MIX.js is an emulator for this architecture. Though the project is mostly for entertainment and education of the author, it could be used to test programs described by Knuth, or when doing the exercises in the book. There are a few short term goals specifically to make this easier, such as a simple debugger/stepper, a good viewer and a MIXal editor.

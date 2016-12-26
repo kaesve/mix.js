@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<head>
+	<title>MIX</title>
+</head>
+<body>
+
+<script type="text/javascript">
+	// 1009.js
+
+	/// micro utility library.
+	function assert(predicate, msg) { if (!predicate && window.confirm("Assert hit: \n\t" + (msg || "???"))) debugger; }
+	function illegal(msg) { if (window.confirm("Illegal code path taken: \n\t" + (msg || "???"))) debugger; }
+	function TODO(msg) { console.warn("TODO: " + msg); }
+
+	var LG8 = 3;
+
+	// indices of registers
+	var RA = 0, RI1 = 1, RI2 = 2, RI3 = 3, RI4 = 4, RI5 = 5, RI6 = 6, RX = 7;
+
+	// partial fields of a word
+	var SIGN = 0, A1 = 1, A2 = 2, I = 3, F = 4, C = 5;
+
+	// field indexing
+	var L = 0, R = 1, DEFAULT_FIELD = 5; // (0:5) = 0x8 + 5 = 5
+
+
+	var OP_CODES = {
+		NOP:   0,
+		ADD:   1,
+		SUB:   2,
+		MUL:   3,
+		DIV:   4,
+		NUM:   5, CHAR:  5, HLT:   5,
+		SLA:   6, SRA:   6, SLAX:  6, SRAX:  6, SLC:   6, SRC:   6,
+		MOVE:  7,
+		
+		LDA:   8,
+		LD1:   9,
+		LD2:  10,
+		LD3:  11,
+		LD4:  12,
+		LD5:  13,
+		LD6:  14,
+		LDX:  15,
+		
+		LDAN: 16,
+		LD1N: 17,
+		LD2N: 18,
+		LD3N: 19,
+		LD4N: 20,
+		LD5N: 21,
+		LD6N: 22,
+		LDXN: 23,
+		
+		STA:  24,
+		ST1:  25,
+		ST2:  26,
+		ST3:  27,
+		ST4:  28,
+		ST5:  29,
+		ST6:  30,
+		STX:  31,
+		
+		STJ:  32,
+		STZ:  33,
+		JBUS: 34,
+		IOC:  35,
+		IN:   36,
+		OUT:  37,
+		JRED: 38,
+		JMP:  39, JSJ:  39, JOV:  39, JNOV: 39, JL:   39, JE:   39, JG:   39, JGE:  39, JNE:  39, JLE:  39,
+		
+		JAN:  40, JAZ:  40, JAP:  40, JANN: 40, JANZ: 40, JANP: 40,
+		J1N:  41, J1Z:  41, J1P:  41, J1NN: 41, J1NZ: 41, J1NP: 41,
+		J2N:  42, J2Z:  42, J2P:  42, J2NN: 42, J2NZ: 42, J2NP: 42,
+		J3N:  43, J3Z:  43, J3P:  43, J3NN: 43, J3NZ: 43, J3NP: 43,
+		J4N:  44, J4Z:  44, J4P:  44, J4NN: 44, J4NZ: 44, J4NP: 44,
+		J5N:  45, J5Z:  45, J5P:  45, J5NN: 45, J5NZ: 45, J5NP: 45,
+		J6N:  46, J6Z:  46, J6P:  46, J6NN: 46, J6NZ: 46, J6NP: 46,
+		JXN:  47, JXZ:  47, JXP:  47, JXNN: 47, JXNZ: 47, JXNP: 47,
+		
+		INCA: 48, DECA: 48, ENTA: 48, ENNA: 48,
+		INC1: 49, DEC1: 49, ENT1: 49, ENN1: 49,
+		INC2: 50, DEC2: 50, ENT2: 50, ENN2: 50,
+		INC3: 51, DEC3: 51, ENT3: 51, ENN3: 51,
+		INC4: 52, DEC4: 52, ENT4: 52, ENN4: 52,
+		INC5: 53, DEC5: 53, ENT5: 53, ENN5: 53,
+		INC6: 54, DEC6: 54, ENT6: 54, ENN6: 54,
+		INCX: 55, DECX: 55, ENTX: 55, ENNX: 55,
+		
+		CMPA:  56,
+		CMP1:  57,
+		CMP2:  58,
+		CMP3:  59,
+		CMP4:  60,
+		CMP5:  61,
+		CMP6:  62,
+		CMPX:  63,
+	};
+
+	var OP_FIELDS = {};
+	Object.keys(OP_CODES).forEach(op => OP_FIELDS[op] = DEFAULT_FIELD);
+	Object.assign(OP_FIELDS, {
+		NOP:   0,
+		NUM:   0, CHAR:  1, HLT:   2,
+		SLA:   0, SRA:   1, SLAX:  2, SRAX:  3, SLC:   4, SRC:   5,
+		MOVE:  1,
+
+		STJ:   2,
+		JBUS:  0,
+		IOC:   0,
+		IN:    0,
+		OUT:   0,
+		JRED:  0,
+		JMP:   0, JSJ:   1, JOV:   2, JNOV:  3, JL:    4, JE:    5, JG:    6, JGE:   7, JNE:   8, JLE:   9,
+		
+		JAN:   0, JAZ:   1, JAP:   2, JANN:  3, JANZ:  4, JANP:  5,
+		J1N:   0, J1Z:   1, J1P:   2, J1NN:  3, J1NZ:  4, J1NP:  5,
+		J2N:   0, J2Z:   1, J2P:   2, J2NN:  3, J2NZ:  4, J2NP:  5,
+		J3N:   0, J3Z:   1, J3P:   2, J3NN:  3, J3NZ:  4, J3NP:  5,
+		J4N:   0, J4Z:   1, J4P:   2, J4NN:  3, J4NZ:  4, J4NP:  5,
+		J5N:   0, J5Z:   1, J5P:   2, J5NN:  3, J5NZ:  4, J5NP:  5,
+		J6N:   0, J6Z:   1, J6P:   2, J6NN:  3, J6NZ:  4, J6NP:  5,
+		JXN:   0, JXZ:   1, JXP:   2, JXNN:  3, JXNZ:  4, JXNP:  5,
+		
+		INCA:  0, DECA:  1, ENTA:  2, ENNA:  3,
+		INC1:  0, DEC1:  1, ENT1:  2, ENN1:  3,
+		INC2:  0, DEC2:  1, ENT2:  2, ENN2:  3,
+		INC3:  0, DEC3:  1, ENT3:  2, ENN3:  3,
+		INC4:  0, DEC4:  1, ENT4:  2, ENN4:  3,
+		INC5:  0, DEC5:  1, ENT5:  2, ENN5:  3,
+		INC6:  0, DEC6:  1, ENT6:  2, ENN6:  3,
+		INCX:  0, DECX:  1, ENTX:  2, ENNX:  3,
+	});
+
+	function   packUnsigned(unpacked, byteSize) {
+		var data = 0;
+		for (var i = 0; i < unpacked.length; ++i) data = data*byteSize + unpacked[i];
+		return data;
+	}
+	function unpackUnsigned(  packed, byteSize) {
+		return (byteSize <= packed) ?
+			unpackUnsigned((packed/byteSize)|0, byteSize).concat(packed % byteSize) :
+			[packed];
+	}
+
+	function   packSigned(unpacked, byteSize) { return unpacked[SIGN] * packUnsigned(unpacked.slice(SIGN + 1), byteSize); }
+	function unpackSigned(  packed, byteSize) { return [Math.sign(packed)].concat(unpackUnsigned(packed, byteSize)); }
+
+	function   packField( field) { return 8*field[L] + field[R]; }
+	function unpackField(packed) { return [packed >> LG8, packed - (packed >> LG8 << LG8)]; }
+	function fieldIncludesSign(packed) { return (packed >> LG8) == SIGN; }
+
+	function writeRightAligned(target, data, field) {
+		if (!field) field = [0, data.length -1];
+
+		assert(0 <= field[L], "Word underflow");
+		assert(field[R] < data.length, "Source overflow");
+		assert(field[R] - field[L] < target.length, "Target overflow");
+
+		for (var i = 0; i <= (field[R] - field[L]); ++i) target[target.length - 1 - i] = data[field[R] - i];
+	}
+
+	function zeroWord() { return [1, 0, 0, 0, 0, 0]; }
+
+	function zeroMachine(byteSize) {
+		if (!byteSize) byteSize = Math.pow(2, 6); // byte size is counted in number of states a byte can take
+
+		var memory = new Array(4000);
+		for (var i = 0; i < memory.length; ++i) memory[i] = zeroWord();
+
+		var generalRegisters = [
+			zeroWord(),
+			[1, 0, 0],
+			[1, 0, 0],
+			[1, 0, 0],
+			[1, 0, 0],
+			[1, 0, 0],
+			[1, 0, 0],
+			zeroWord(),
+		];
+		var machine = {
+			overflow: false,
+			
+			less:    false,
+			equal:   false,
+			greater: false,
+
+			rA:  generalRegisters[RA], rX: generalRegisters[RX],
+			
+			rI1: generalRegisters[RI1],
+			rI2: generalRegisters[RI2],
+			rI3: generalRegisters[RI3],
+			rI4: generalRegisters[RI4],
+			rI5: generalRegisters[RI5],
+			rI6: generalRegisters[RI6],
+
+			rJ:  [1, 0, 0],
+
+			memory: memory,
+
+			// NOTE: External devices are `undefined`, which feels fitting.
+
+			// 'internal' state:
+
+			generalRegisters: generalRegisters,
+			byteSize: byteSize,
+			clock: 0, // measured in 'ticks'
+			programCounter: 0,
+			halted: true,
+		};
+
+		return machine;
+	}
+
+	function attachDevice(machine, u, device) { machine["U" + u] = device; }
+
+	function GO(machine) { }
+
+	function step(machine) {
+
+		var instr = machine.memory[machine.programCounter];
+		machine.clock++;
+		machine.programCounter++;
+		machine.halted = false;
+
+		var packedAddr = packUnsigned([instr[A1], instr[A2]], machine.byteSize);
+		TODO("do the indexing here.");
+		
+		// op codes are grouped in groups of 8, and for many of them, the nth op code of the group
+		// uses the nth general register.
+		var register = machine.generalRegisters[instr[C] - (instr[C] >> LG8 << LG8)];
+
+		var field = unpackField(instr[F]);
+
+
+		var opHandled = false;
+
+
+		if (0 <= instr[C] && instr[C] < 8) {
+			/// Arithmatic, special, shifts, move
+
+
+			switch(instr[C]){
+				case OP_CODES.NOP: { opHandled = instr[F] === OP_FIELDS.NOP; } break;
+
+				case OP_CODES.ADD:
+				case OP_CODES.SUB: {
+					opHandled = true;
+
+					var sourceWord = machine.memory[packedAddr];
+					machine.clock++;
+
+					if (fieldIncludesSign(instr[F])) field[L] = 1;
+					var V = packUnsigned(sourceWord.slice(field[L], field[R] + 1), machine.byteSize);
+					if (fieldIncludesSign(instr[F])) V *= sourceWord[SIGN];
+
+					var A = packUnsigned(machine.rA.slice(1, 6), machine.byteSize)*machine.rA[SIGN];
+
+					var result = instr[C] === OP_CODES.ADD ? A + V : A - V;
+					var unpacked = unpackUnsigned(Math.abs(result), machine.byteSize);
+
+					// note that the overflow can be at most one digit, which overwrites the sign 'bit' in A,
+					// which we then overwrite with the result sign. Thus, we don't have to take special
+					// precautions for overflows.
+					machine.overflow = machine.rA.length <= unpacked.length;
+					writeRightAligned(machine.rA, unpacked);
+					machine.rA[SIGN] = Math.sign(result);
+				} break;
+
+				case OP_CODES.MUL: { } break;
+
+				case OP_CODES.DIV: { } break;
+
+				case OP_CODES.NUM:
+				case OP_CODES.CHAR:
+				case OP_CODES.HLT: {
+					switch(instr[F]) {
+						case OP_FIELDS.NUM:  { } break;
+						case OP_FIELDS.CHAR: { } break;
+						case OP_FIELDS.HLT:  { opHandled = true; machine.halted = true; } break;
+					}
+				} break;
+
+				case OP_CODES.SLA:  case OP_CODES.SRA:
+				case OP_CODES.SLAX: case OP_CODES.SRAX:
+				case OP_CODES.SLC:  case OP_CODES.SRC: {
+					opHandled = true;
+					var dir = instr[F] % 2;
+					var op = instr[F] >> 2;
+
+					switch(op) {
+						case 0: {
+							register = machine.generalRegisters[op * (RX/2)];
+
+							if (dir) {
+								register[ C] = register[ F];
+								register[ F] = register[ I];
+								register[ I] = register[A2];
+								register[A2] = register[A1];
+								register[A1] = 0;
+							} else {
+								register[A1] = register[A2];
+								register[A2] = register[ I];
+								register[ I] = register[ F];
+								register[ F] = register[ C]
+								register[ C] = 0;
+							}
+						} break;
+
+						case 1: case 2: {
+
+							if (dir) {
+								machine.rA[ C] = machine.rA[ F];
+								machine.rA[ F] = machine.rA[ I];
+								machine.rA[ I] = machine.rA[A2];
+								machine.rA[A2] = machine.rA[A1];
+								machine.rA[A1] = op === 1 ? 0 : machine.rX[ C];
+
+								machine.rX[ C] = machine.rX[ F];
+								machine.rX[ F] = machine.rX[ I];
+								machine.rX[ I] = machine.rX[A2];
+								machine.rX[A2] = machine.rX[A1];
+								machine.rX[A1] = op === 1 ? 0 : machine.rA[ C];;
+							} else {
+								machine.rA[A1] = machine.rA[A2];
+								machine.rA[A2] = machine.rA[ I];
+								machine.rA[ I] = machine.rA[ F];
+								machine.rA[ F] = machine.rA[ C]
+								machine.rA[ C] = op === 1 ? 0 : machine.rX[A1];;
+
+								machine.rX[A1] = machine.rX[A2];
+								machine.rX[A2] = machine.rX[ I];
+								machine.rX[ I] = machine.rX[ F];
+								machine.rX[ F] = machine.rX[ C]
+								machine.rX[ C] = op === 1 ? 0 : machine.rA[A1];;
+							}
+						} break;
+					}
+				} break;
+
+				case OP_CODES.MOVE: { } break;
+			}
+
+		} else if ( 8 <= instr[C] && instr[C] < 16) {
+			/// Load
+
+			opHandled = true;
+			var sourceWord = machine.memory[packedAddr];
+			machine.clock++;
+
+			// Load unsigned part first.
+			if (fieldIncludesSign(instr[F])) field[L] = 1;
+			writeRightAligned(register, sourceWord, field);
+
+			// Load sign if needed.
+			if (fieldIncludesSign(instr[F])) register[SIGN] = sourceWord[SIGN];
+
+		} else if (16 <= instr[C] && instr[C] < 24) {
+			/// Load negated
+
+			opHandled = true;
+			var sourceWord = machine.memory[packedAddr];
+			machine.clock++;
+
+			// Load unsigned part first.
+			if (fieldIncludesSign(instr[F])) field[L] = 1;
+			writeRightAligned(register, sourceWord, field);
+
+			// Load sign (negated!) if needed.
+			if (fieldIncludesSign(instr[F])) register[SIGN] = -sourceWord[SIGN];
+
+		} else if (24 <= instr[C] && instr[C] < 32) {
+			/// Store
+			
+			TODO("Fix stn alignedness");
+
+			opHandled = true;
+			var targetWord = machine.memory[packedAddr];
+			machine.clock++;
+
+			// Store unsigned part first.
+			if (fieldIncludesSign(instr[F])) field[L] = 1;
+			writeRightAligned(targetWord, register, field);
+
+			// Store sign if needed.
+			if (fieldIncludesSign(instr[F])) targetWord[SIGN] = register[SIGN];
+
+		} else if (32 <= instr[C] && instr[C] < 40) {
+			/// Special stores, I/O, Flag-condional jumps
+
+			opHandled = true;
+			TODO("Fix stj alignedness");
+			switch(instr[C]) {
+				case OP_CODES.STJ: { writeRightAligned(machine.memory[packedAddr], machine.rJ, field); } break;
+				case OP_CODES.STZ: { writeRightAligned(machine.memory[packedAddr], zeroWord(), field); } break;
+
+				case OP_CODES.JBUS:
+				case OP_CODES.IOC:
+				case OP_CODES.IN:
+				case OP_CODES.OUT:
+				case OP_CODES.JRED: { opHandled = false; } break;
+
+				case OP_CODES.JMP:  case OP_CODES.JSJ: case OP_CODES.JOV:
+				case OP_CODES.JNOV: case OP_CODES.JL:  case OP_CODES.JE:
+				case OP_CODES.JG:   case OP_CODES.JGE: case OP_CODES.JNE:
+				case OP_CODES.JLE: {
+					var doJump;
+					switch (instr[F]) {
+						case OP_FIELDS.JMP:
+						case OP_FIELDS.JSJ:  { doJump = true } break;
+
+						case OP_FIELDS.JOV:  { doJump =  machine.overflow; machine.overflow = false; } break;
+						case OP_FIELDS.JNOV: { doJump = !machine.overflow; machine.overflow = false; } break;
+
+						case OP_FIELDS.JL:   { doJump = machine.less; } break;
+						case OP_FIELDS.JLE:  { doJump = machine.less || machine.equal; } break;
+						
+						case OP_FIELDS.JE:   { doJump =  machine.equal; } break;
+						case OP_FIELDS.JNE:  { doJump = !machine.equal; } break;
+						
+						case OP_FIELDS.JG:   { doJump = machine.greater; } break;
+						case OP_FIELDS.JGE:  { doJump = machine.greater || machine.equal; } break;
+					}
+
+					if (doJump) {
+						if (instr[F] != OP_FIELDS.JSJ) {
+							var unpackedPC = unpackUnsigned(machine.programCounter, machine.byteSize);
+							writeRightAligned(machine.rJ, unpackedPC, [unpackedPC.length - 2, unpackedPC.length - 1]);
+						}
+
+						machine.programCounter = packedAddr;
+					}
+				} break;
+			}
+
+		} else if (40 <= instr[C] && instr[C] < 48) {
+			/// Data-conditional jumps
+
+			opHandled = true;
+			var doJump;
+			switch (instr[F]) {
+				case OP_FIELDS.JAN:  { doJump = unpackSigned(register)  < 0; } break;
+				case OP_FIELDS.JAZ:  { doJump = unpackSigned(register) == 0; } break;
+				case OP_FIELDS.JAP:  { doJump = unpackSigned(register)  > 0; } break;
+				case OP_FIELDS.JANN: { doJump = unpackSigned(register) >= 0; } break;
+				case OP_FIELDS.JANZ: { doJump = unpackSigned(register) != 0; } break;
+				case OP_FIELDS.JANP: { doJump = unpackSigned(register) <= 0; } break;
+			}
+
+			if (doJump) machine.programCounter = packedAddr;
+
+		} else if (48 <= instr[C] && instr[C] < 56) {
+			/// Immediate (negated) loads, increments, decrements
+
+			opHandled = true;
+			switch (instr[F]) {
+				case OP_FIELDS.INCA:
+				case OP_FIELDS.DECA: {
+					TODO("check if calculation of `signedM` is correct after having applied index registers.");
+					var signedM = instr[SIGN]*packedAddr;
+					if (instr[F] === OP_FIELDS.DECA) signedM = -signedM;
+
+					var result = signedM + unpackSigned(register, machine.byteSize);
+					var unpacked = unpackSigned(result, machine.byteSize);
+
+
+					TODO("figure out if the INCr and DECr manipulate the overflow flag, when r is one of the index registers");
+
+					if (unpacked.length > register.length) {
+
+						if (instr[C] == OP_CODES.INCA || instr[C] == OP_CODES.INCX)
+							machine.overflow = true;
+						else
+							illegal("Index registers cannot overflow.");
+					} else {
+						if (instr[C] == OP_CODES.INCA || instr[C] == OP_CODES.INCX)
+							machine.overflow = false;
+					}
+				} break;
+				case OP_FIELDS.ENTA:
+				case OP_FIELDS.ENNA: {
+					
+
+					if (instr[C] == OP_CODES.INCA || instr[C] == OP_CODES.INCX)
+						writeRightAligned(register, zeroWord());
+
+					writeRightAligned(register, unpackUnsigned(packedAddr));
+
+					TODO("check if sign loading should take index registers into account here.");
+					if (instr[F] === OP_FIELDS.ENTA) register[SIGN] =  instr[SIGN];
+					else                             register[SIGN] = -instr[SIGN];
+
+				} break;
+			}
+
+
+		} else if (56 <= instr[C] && instr[C] < 64) {
+			/// Compares
+
+			opHandled = true;
+
+			var sourceWord = machine.memory[packedAddr];
+			machine.clock++;
+			
+			if (fieldIncludesSign(instr[F])) field[L] = 1;
+			var V = packUnsigned(sourceWord, machine.byteSize, field);
+			var r = packUnsigned(register.slice(1), machine.byteSize);
+			TODO("Apply field to r");
+
+			if (fieldIncludesSign(instr[F])) {
+				V *= sourceWord[SIGN];
+				r *= register[SIGN];
+			}
+
+			machine.less    = r  < V;
+			machine.equal   = r == V;
+			machine.greater = r  > V;
+		}
+
+
+		assert(opHandled, "Unhandled op code " + instr[C]);
+
+	}
+
+	function run(machine) {
+		while(machine.memory[machine.programCounter][C] != OP_CODES.HLT ||
+			    machine.memory[machine.programCounter][F] != OP_FIELDS.HLT) step();
+	}
+
+	function copyArr(target, source) {
+		target.length = source.length;
+		for (var i = 0; i < source.length; ++i) target[i] = source[i];
+	}
+
+	function overwrite(machine, addr, datta) {
+		for (var i = 0; i < data.length; ++i) copyArr(machine.memory[addr + i], data[i]);
+	}
+
+
+	function copyMachine(target, source) {
+		for (var r = 0; r < source.generalRegisters.length; ++r)
+			copyArr(target.generalRegisters[r], source.generalRegisters[r]);
+		copyArr(target.rJ, source.rJ);
+
+		for (var m = 0; m < source.memory.length; ++m)
+			copyArr(target.memory[m], source.memory[m]);
+
+		var keys = [ "overflow", "less", "equal", "greater", "programCounter", "halted", "byteSize", "clock" ];
+		for (var k = 0; k < keys.length; ++k)
+			target[keys[k]] = source[keys[k]];
+	}
+
+	function zeroPad(a, n) { while (a.length < n) a.unshift(0); }
+
+
+	function loadTests() {
+		function cat() {
+			var args = Array.from(arguments).map(function (a) { return Array.isArray(a) ? a : [ a ]; });
+			return Array.prototype.concat.apply([], args);
+		}
+		function makeInstr(op, addr, l, r, i) {
+			if (typeof l === "undefined") l = 0;
+			if (typeof r === "undefined") r = 5;
+			if (typeof i === "undefined") i = 0;
+
+			return cat(1, addr, i, packField([l, r]), op);
+		}
+
+		function compareArrays(a, b) {
+			// superficial
+			var r = a.length == b.length;
+			for (var i = 0; r && i < a.length; ++i) r = a[i] === b[i];
+			return r;
+		}
+
+		var byteSize = 100;
+		var machine = zeroMachine(byteSize);
+		var packedAddr = 2000;
+		var addr = unpackUnsigned(packedAddr, byteSize);
+		var unpacked80 = unpackUnsigned(80, byteSize);
+		zeroPad(unpacked80, 2);
+		var dataWord = cat(-1, unpacked80, 3, 5, 4);
+
+		assert(dataWord.length === 6, "Dataword is not a valid word..");
+		copyArr(machine.memory[packedAddr], dataWord);
+
+		var testSet = [
+			[ makeInstr(OP_CODES.LDA, addr, 0, 5, 0), cat(-1, unpacked80, 3, 5, 4) ],
+			[ makeInstr(OP_CODES.LDA, addr, 1, 5, 0), cat( 1, unpacked80, 3, 5, 4) ],
+			[ makeInstr(OP_CODES.LDA, addr, 3, 5, 0), cat( 1, 0, 0, 3, 5, 4) ],
+			[ makeInstr(OP_CODES.LDA, addr, 0, 3, 0), cat(-1, 0, 0, unpacked80, 3) ],
+			[ makeInstr(OP_CODES.LDA, addr, 4, 4, 0), cat( 1, 0, 0, 0, 0, 5) ],
+			[ makeInstr(OP_CODES.LDA, addr, 0, 0, 0), cat(-1, 0, 0, 0, 0, 0) ],
+			[ makeInstr(OP_CODES.LDA, addr, 1, 1, 0), cat( 1, 0, 0, 0, 0, unpacked80[0]) ],
+		];
+
+		for (var testOrdinal = 0; testOrdinal < testSet.length; ++testOrdinal) {
+			var testMachine = zeroMachine();
+			copyMachine(testMachine, machine);
+
+			var testInstr = testSet[testOrdinal][0];
+			var expectedA = testSet[testOrdinal][1];
+			copyArr(testMachine.memory[testMachine.programCounter], testInstr);
+
+
+			step(testMachine);
+			assert(compareArrays(expectedA, testMachine.rA), "Unexpected result afther load");
+			assert(testMachine.clock === 2, "Clock should have been 2 after one LDA");
+		}
+	}
+
+	loadTests();
+
+	function tests() {
+
+		var byteSize = 100;
+		var packedAddr = 3000;
+		var addr = unpackUnsigned(packedAddr, byteSize);
+		var word = zeroWord();
+		var v1 = 1009;
+		writeRightAligned(word, unpackUnsigned(v1, byteSize));
+
+		var instr = [1, addr[0], addr[1], 0, OP_FIELDS.LDA, OP_CODES.LDA];
+
+		var machine = zeroMachine(byteSize);
+		copyArr(machine.memory[packedAddr], word);
+		copyArr(machine.memory[machine.programCounter], instr);
+
+		step(machine);
+
+		assert(packUnsigned(machine.rA, byteSize) === packUnsigned(word, byteSize));
+
+
+		var packedAddr2 = packedAddr + 1;
+		var addr2  = unpackUnsigned(packedAddr2, byteSize);
+		var instr2 = [1, addr2[0], addr2[1], 0, OP_FIELDS.ADD, OP_CODES.ADD];
+		var v2 = 1000;
+		var word2 = zeroWord();
+		writeRightAligned(word2, unpackUnsigned(v2, byteSize));
+
+		machine.memory[packedAddr2] = word2;
+		machine.memory[machine.programCounter] = instr2;
+
+		step(machine);
+
+		assert(packUnsigned(machine.rA.slice(1, machine.rA.length + 1), byteSize) === v1 + v2, "The add gives the wrong result");
+		assert(!machine.overflow, "The add does not overflow");
+
+
+	}
+
+	tests();
+</script>
+</body>
