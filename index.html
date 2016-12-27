@@ -8,8 +8,9 @@
 	// 1009.js
 
 	/// micro utility library.
-	function assert(predicate, msg) { if (!predicate && window.confirm("Assert hit: \n\t" + (msg || "???"))) debugger; }
-	function illegal(msg) { if (window.confirm("Illegal code path taken: \n\t" + (msg || "???"))) debugger; }
+	var debugLevel = 10;
+	function assert(predicate, msg) { if (debugLevel > 1 && !predicate && window.confirm("Assert hit: \n\t" + (msg || "???"))) { debugLevel = 0; debugger; } }
+	function illegal(msg) { if (debugLevel > 1 && window.confirm("Illegal code path taken: \n\t" + (msg || "???"))) { debugLevel = 0; debugger; } }
 	function TODO(msg) { console.warn("TODO: " + msg); }
 
 	var LG8 = 3;
@@ -159,6 +160,23 @@
 		assert(field[R] - field[L] < target.length, "Target overflow");
 
 		for (var i = 0; i <= (field[R] - field[L]); ++i) target[target.length - 1 - i] = data[field[R] - i];
+	}
+
+	function writeWithFields(target, tf, data, df) {
+		assert(target, "Target unspecified");
+		assert(    tf, "Target field unspecified");
+		assert(  data, "Data unspecified");
+		assert(    df, "Data field unspecified");
+
+		assert(0 <= tf[L], "Target field underflow");
+		assert(tf[R] < target.length, "Target field underflow");
+
+		assert(0 <= df[L], "Data field underflow");
+		assert(df[R] < data.length, "Source overflow");
+
+		assert(tf[R] - tf[L] === df[R] - df[L], "Fields should contain same number of bytes");
+
+		for (var i = 0; i <= (tf[R] - tf[L]); ++i) target[i + tf[L]] = data[i + df[L]];
 	}
 
 	function zeroWord() { return [1, 0, 0, 0, 0, 0]; }
@@ -373,15 +391,13 @@
 		} else if (24 <= instr[C] && instr[C] < 32) {
 			/// Store
 			
-			TODO("Fix stn alignedness");
-
 			opHandled = true;
 			var targetWord = machine.memory[packedAddr];
 			machine.clock++;
 
 			// Store unsigned part first.
 			if (fieldIncludesSign(instr[F])) field[L] = 1;
-			writeRightAligned(targetWord, register, field);
+			writeWithFields(targetWord, field, register, [ C - (field[R] - field[L]), C]);
 
 			// Store sign if needed.
 			if (fieldIncludesSign(instr[F])) targetWord[SIGN] = register[SIGN];
@@ -552,27 +568,26 @@
 	}
 
 	function zeroPad(a, n) { while (a.length < n) a.unshift(0); }
+	function cat() {
+		var args = Array.from(arguments).map(function (a) { return Array.isArray(a) ? a : [ a ]; });
+		return Array.prototype.concat.apply([], args);
+	}
+	function compareArrays(a, b) {
+		// superficial
+		var r = a.length == b.length;
+		for (var i = 0; r && i < a.length; ++i) r = a[i] === b[i];
+		return r;
+	}
+	
+	function makeInstr(op, addr, l, r, i) {
+		if (typeof l === "undefined") l = 0;
+		if (typeof r === "undefined") r = 5;
+		if (typeof i === "undefined") i = 0;
 
+		return cat(1, addr, i, packField([l, r]), op);
+	}
 
 	function loadTests() {
-		function cat() {
-			var args = Array.from(arguments).map(function (a) { return Array.isArray(a) ? a : [ a ]; });
-			return Array.prototype.concat.apply([], args);
-		}
-		function makeInstr(op, addr, l, r, i) {
-			if (typeof l === "undefined") l = 0;
-			if (typeof r === "undefined") r = 5;
-			if (typeof i === "undefined") i = 0;
-
-			return cat(1, addr, i, packField([l, r]), op);
-		}
-
-		function compareArrays(a, b) {
-			// superficial
-			var r = a.length == b.length;
-			for (var i = 0; r && i < a.length; ++i) r = a[i] === b[i];
-			return r;
-		}
 
 		var byteSize = 100;
 		var machine = zeroMachine(byteSize);
@@ -580,10 +595,10 @@
 		var addr = unpackUnsigned(packedAddr, byteSize);
 		var unpacked80 = unpackUnsigned(80, byteSize);
 		zeroPad(unpacked80, 2);
-		var dataWord = cat(-1, unpacked80, 3, 5, 4);
+		var initialData = cat(-1, unpacked80, 3, 5, 4);
 
-		assert(dataWord.length === 6, "Dataword is not a valid word..");
-		copyArr(machine.memory[packedAddr], dataWord);
+		assert(initialData.length === 6, "initialData is not a valid word..");
+		copyArr(machine.memory[packedAddr], initialData);
 
 		var testSet = [
 			[ makeInstr(OP_CODES.LDA, addr, 0, 5, 0), cat(-1, unpacked80, 3, 5, 4) ],
@@ -605,12 +620,50 @@
 
 
 			step(testMachine);
-			assert(compareArrays(expectedA, testMachine.rA), "Unexpected result afther load");
+			assert(compareArrays(expectedA, testMachine.rA), "Unexpected result after STA");
 			assert(testMachine.clock === 2, "Clock should have been 2 after one LDA");
 		}
 	}
 
 	loadTests();
+
+	function STATests() {
+
+		var byteSize = 100;
+		var machine = zeroMachine(byteSize);
+		var packedAddr = 2000;
+		var addr = unpackUnsigned(packedAddr, byteSize);
+		var initialData = [-1, 1, 2, 3, 4, 5];
+		var initialA    = [ 1, 6, 7, 8, 9, 0];
+
+		copyArr(machine.memory[packedAddr], initialData);
+		copyArr(machine.rA, initialA);
+
+		var testSet = [
+			[ makeInstr(OP_CODES.STA, addr, 0, 5, 0), [ 1, 6, 7, 8, 9, 0 ] ],
+			[ makeInstr(OP_CODES.STA, addr, 1, 5, 0), [-1, 6, 7, 8, 9, 0 ] ],
+			[ makeInstr(OP_CODES.STA, addr, 5, 5, 0), [-1, 1, 2, 3, 4, 0 ] ],
+			[ makeInstr(OP_CODES.STA, addr, 2, 2, 0), [-1, 1, 0, 3, 4, 5 ] ],
+			[ makeInstr(OP_CODES.STA, addr, 2, 3, 0), [-1, 1, 9, 0, 4, 5 ] ],
+			[ makeInstr(OP_CODES.STA, addr, 0, 1, 0), [ 1, 0, 2, 3, 4, 5 ] ],
+		];
+
+		for (var testOrdinal = 0; testOrdinal < testSet.length; ++testOrdinal) {
+			var testMachine = zeroMachine();
+			copyMachine(testMachine, machine);
+
+			var testInstr = testSet[testOrdinal][0];
+			var expected  = testSet[testOrdinal][1];
+			copyArr(testMachine.memory[testMachine.programCounter], testInstr);
+
+
+			step(testMachine);
+			assert(compareArrays(expected, testMachine.memory[packedAddr]), "Unexpected result after STA");
+			assert(testMachine.clock === 2, "Clock should have been 2 after one STA");
+		}
+	}
+
+	STATests();
 
 	function tests() {
 
